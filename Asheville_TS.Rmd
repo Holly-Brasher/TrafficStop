@@ -1,0 +1,96 @@
+---
+title: "Asheville Traffic Stop Data"
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+    social: menu
+    source: embed
+---
+
+
+```{r setup, include=FALSE}
+# load data in 'global' chunk so it can be shared by all users of the dashboard
+library(jsonlite)
+
+stops<-read_json("https://services.arcgis.com/aJ16ENn1AaqdFlqx/arcgis/rest/services/APDTrafficStops2020/FeatureServer/0/query?where=1%3D1&outFields=objectid,address,agency,date_occurred,driver_arrested,driver_searched,enf_code_sbi,inj_driver,off_use_force,passenger_arrested,passenger_searched,traffic_stop_id,vehicle_searched&returnGeometry=false&outSR=4326&f=json", simplifyVector = TRUE, flatten=TRUE)
+
+stops_df<-stops$features
+
+names(stops_df) = gsub(pattern = "attributes.", replacement = "", x = names(stops_df))
+
+location<-read_json("https://services.arcgis.com/aJ16ENn1AaqdFlqx/arcgis/rest/services/APDTrafficStops2020/FeatureServer/0/query?where=1%3D1&outFields=objectid&outSR=4326&f=json", simplifyVector = TRUE, flatten=TRUE)
+
+location_df<-location$features
+
+names(location_df) = gsub("attributes.", replacement = "", x = names(location_df))
+names(location_df) = gsub("geometry.", replacement = "", x = names(location_df))
+
+stopsdata<-merge(stops_df, location_df, by="objectid")
+
+```
+### TRAFFIC STOPS BY LOCATION AND OUTCOME. This interactive map shows all traffic stops from October 2017 to the present. Zoom and pan to see different areas of the map.
+
+```{r}
+library(leaflet)
+
+leaflet(stopsdata) %>% 
+  setView(lng=-82.5, lat=35.6, zoom=11) %>%
+  addProviderTiles(provider = "CartoDB.Positron") %>%
+  addCircleMarkers(lng = stopsdata$x, lat = stopsdata$y, 
+                   clusterOptions = markerClusterOptions(),
+                    color = ~ifelse(stopsdata$enf_code_sbi == "CITATION ISSUED", "#e9a3c9", "#a1d76a"), stroke = FALSE, 
+                   fillOpacity = 0.5, label = stopsdata$enf_code_sbi)
+
+
+```
+
+***
+
+
+This interactive map shows all traffic stops from October 2017 to the present. Zoom and pan to see different areas of the map. Click on the markers to show greater detail. Click on individual stops to see the outcome. The greatest number of traffic stops are in the downtown area. The most frequent outcome of the traffic stops is "citation issued." which is the outcome of 46% of stops. The second most frequent outcome is a verbal warning, which is the outcome for 43% of the stops. 
+
+
+
+### TOTAL TRAFFIC STOPS BY DAY, MONTH AND YEAR. This graph shows the count of traffic stops by day, from October 2017 to the present. 
+
+```{r}
+library(dygraphs)
+library(lubridate)
+library(xts)
+library(dplyr)
+
+stopsdata$date_of_stop<-(date(ymd_hms(as.numeric(stopsdata$date_occurred))))
+totalstops<-stopsdata[c(1,16)]
+totalstops$COUNT <- 1
+totalsbydate<-totalstops %>% group_by(date_of_stop) %>% summarize(totals = sum(COUNT))
+
+stopsdy <- xts(x = totalsbydate$totals, order.by = totalsbydate$date_of_stop)
+dygraph(stopsdy, main = "Total Traffic Stops by Date") %>% 
+  dyRangeSelector(dateWindow = c("2017-10-01", "2020-12-31"))
+```
+
+***
+
+This graph shows the count of traffic stops by day, from October 2017 to the present. The time covered by the series can be expanded or narrowed using the interactive tool below the graph. The highest number of stops are on April 17, 2019. This seems to coincide with a festival which likely drew a large number of vistors to the city. The series also shows a sharp decline in traffic stops that coincides with the beginning of the stay-at-home order associated with the COVID-19 pandemic.
+
+
+### THE DISTRIBUTION OF STOPS BY AGE AND RACE. The boxplots show the distribution and statistics for traffic stops by age and race. 
+
+```{r}
+library(plotly)
+
+racegender<-read_json("https://opendata.arcgis.com/datasets/cfae11db231548cb952f273d07f95049_2.geojson", simplifyVector = TRUE, flatten=TRUE)
+
+racegender_df<-racegender$features
+names(racegender_df) = gsub(pattern = "properties.", replacement = "", x = names(racegender_df))
+racegender_df$age<-as.numeric(racegender_df$name_age, na.rm=TRUE)
+
+race <- plot_ly(racegender_df, x = ~name_race, y = ~age, color = ~name_race, type = "box")%>% layout(legend=list(title=list(text='<b> Race </b>')))
+ggplotly(race)
+
+
+```
+
+***
+The boxplots show the distribution and statistics for traffic stops by age and race. Hovering with the cursor shows the median, quartiles, minimum and maximum age for each category. The distributions are quite similar across race. For all categories, the median ages are all within four years, ranging from 29 to 33. 
+
